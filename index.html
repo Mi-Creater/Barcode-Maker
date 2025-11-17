@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Mobile Barcode Generator</title>
+
+  <!-- 🌟 PWA Requirements -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1a73e8">
+  
+  <!-- iOS support -->
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Barcode App">
+
+  <style>
+    html,body{height:100%;margin:0;-webkit-touch-callout:none;-webkit-user-select:none;-ms-user-select:none;user-select:none;background:#fff;color:#000;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    .app{height:100vh;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:hidden}
+
+    .barcode-area{height:2in;min-height:120px; display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;box-sizing:border-box}
+    svg{max-width:96%;height:calc(2in - 28px);}
+
+    .label{font-size:14px;opacity:0.9;margin-top:6px;word-break:break-all;text-align:center}
+
+    .input-area{position:fixed;left:0;right:0;bottom:0;padding:10px;background:#ffffffee;box-shadow:0 -6px 18px rgba(0,0,0,0.6);display:flex;gap:8px;align-items:center}
+    .input-area input{flex:1;padding:12px 14px;font-size:18px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:#fff;color:inherit;outline:none}
+    .input-area button{padding:10px 12px;border-radius:8px;background:#1a73e8;border:none;color:#fff;font-weight:600}
+    .input-area .small{font-size:12px;padding:8px 10px}
+
+    body,html{overscroll-behavior-y:none}
+
+    .top-hint{position:fixed;top:6px;left:6px;right:6px;text-align:center;font-size:12px;opacity:0.8}
+
+    button,input{touch-action:manipulation}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="top-hint">Type below — barcode previews live above. (Barcode type: CODE128)</div>
+
+    <div class="barcode-area" id="barcodeContainer">
+      <svg id="barcode" jsbarcode-format="CODE128"></svg>
+      <div class="label" id="barcodeLabel">—</div>
+    </div>
+
+    <div style="flex:1"></div>
+
+    <div class="input-area">
+      <input id="textInput" type="text" inputmode="text" placeholder="Type text or numbers to make barcode" aria-label="Barcode input" maxlength="120"/>
+      <button id="clearBtn" class="small">Clear</button>
+      <button id="downloadBtn" class="small">Download</button>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+  <script>
+    const input = document.getElementById('textInput');
+    const svg = document.getElementById('barcode');
+    const label = document.getElementById('barcodeLabel');
+    const clearBtn = document.getElementById('clearBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    const barcodeOptions = {
+      format: 'CODE128',
+      displayValue: false,
+      height: 60,
+      margin: 0,
+      background: '#ffffff00',
+      lineColor: '#000'
+    };
+
+    function renderBarcode(value){
+      value = (value||'').toString();
+      if(!value){
+        svg.innerHTML = '';
+        label.textContent = '—';
+        return;
+      }
+
+      try{
+        JsBarcode(svg, value, barcodeOptions);
+        label.textContent = value;
+      }catch(err){
+        svg.innerHTML = '';
+        label.textContent = value + ' (cannot render barcode for this value)';
+      }
+    }
+
+    let typingTimer;
+    input.addEventListener('input', (e)=>{
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(()=>{ renderBarcode(e.target.value); }, 120);
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      input.value = '';
+      renderBarcode('');
+      input.focus();
+    });
+
+    downloadBtn.addEventListener('click', ()=>{
+      const val = input.value || '';
+      if(!val) return alert('Nothing to download');
+
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svg);
+      const svgBlob = new Blob([svgStr], {type: 'image/svg+xml;charset=utf-8'});
+      const url = URL.createObjectURL(svgBlob);
+
+      const img = new Image();
+      img.onload = function(){
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width || 800;
+        canvas.height = img.height || 200;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0);
+        canvas.toBlob(function(blob){
+          const a = document.createElement('a');
+          a.download = 'barcode-'+Date.now()+'.png';
+          a.href = URL.createObjectURL(blob);
+          a.click();
+        });
+      };
+      img.src = url;
+    });
+
+    document.addEventListener('click', (e)=>{ if(!e.target.closest('.input-area')) input.focus(); });
+    setTimeout(()=>{ input.focus(); }, 350);
+
+    renderBarcode('');
+
+    /* 🌟 REGISTER SERVICE WORKER */
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("sw.js")
+        .then(() => console.log("Service worker registered"))
+        .catch(err => console.log("SW error", err));
+    }
+  </script>
+</body>
+</html>
