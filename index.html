@@ -8,8 +8,6 @@
   <!-- 🌟 PWA Requirements -->
   <link rel="manifest" href="manifest.json">
   <meta name="theme-color" content="#1a73e8">
-  
-  <!-- iOS support -->
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -19,20 +17,21 @@
     html,body{height:100%;margin:0;-webkit-touch-callout:none;-webkit-user-select:none;-ms-user-select:none;user-select:none;background:#fff;color:#000;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
     .app{height:100vh;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;overflow:hidden}
 
-    .barcode-area{height:2in;min-height:120px; display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;box-sizing:border-box}
+    .barcode-area{height:2.5in;min-height:140px; display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px;box-sizing:border-box}
     svg{max-width:96%;height:calc(2in - 28px);}
-
-    .label{font-size:14px;opacity:0.9;margin-top:6px;word-break:break-all;text-align:center}
+    .label{font-size:16px;opacity:0.9;margin-top:6px;word-break:break-all;text-align:center}
 
     .input-area{position:fixed;left:0;right:0;bottom:0;padding:10px;background:#ffffffee;box-shadow:0 -6px 18px rgba(0,0,0,0.6);display:flex;gap:8px;align-items:center}
     .input-area input{flex:1;padding:12px 14px;font-size:18px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:#fff;color:inherit;outline:none}
     .input-area button{padding:10px 12px;border-radius:8px;background:#1a73e8;border:none;color:#fff;font-weight:600}
     .input-area .small{font-size:12px;padding:8px 10px}
 
+    .suggestions{position:absolute;bottom:50px;left:10px;right:10px;background:#fff;border:1px solid #ccc;border-radius:6px;max-height:120px;overflow-y:auto;z-index:1000;font-size:14px}
+    .suggestions div{padding:6px 10px;cursor:pointer}
+    .suggestions div:hover{background:#f0f0f0}
+
     body,html{overscroll-behavior-y:none}
-
     .top-hint{position:fixed;top:6px;left:6px;right:6px;text-align:center;font-size:12px;opacity:0.8}
-
     button,input{touch-action:manipulation}
   </style>
 </head>
@@ -52,6 +51,8 @@
       <button id="clearBtn" class="small">Clear</button>
       <button id="downloadBtn" class="small">Download</button>
     </div>
+
+    <div id="suggestionsBox" class="suggestions" style="display:none"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
@@ -61,6 +62,7 @@
     const label = document.getElementById('barcodeLabel');
     const clearBtn = document.getElementById('clearBtn');
     const downloadBtn = document.getElementById('downloadBtn');
+    const suggestionsBox = document.getElementById('suggestionsBox');
 
     const barcodeOptions = {
       format: 'CODE128',
@@ -71,6 +73,17 @@
       lineColor: '#000'
     };
 
+    /* History memory using localStorage */
+    let history = JSON.parse(localStorage.getItem('barcodeHistory')||'[]');
+    function saveToHistory(value){
+      if(!value) return;
+      if(!history.includes(value)){
+        history.unshift(value);
+        if(history.length > 50) history.pop(); // keep last 50
+        localStorage.setItem('barcodeHistory', JSON.stringify(history));
+      }
+    }
+
     function renderBarcode(value){
       value = (value||'').toString();
       if(!value){
@@ -78,7 +91,6 @@
         label.textContent = '—';
         return;
       }
-
       try{
         JsBarcode(svg, value, barcodeOptions);
         label.textContent = value;
@@ -88,21 +100,41 @@
       }
     }
 
+    function showSuggestions(val){
+      const matches = history.filter(v => v.toLowerCase().includes(val.toLowerCase()));
+      if(matches.length===0){ suggestionsBox.style.display='none'; return; }
+      suggestionsBox.innerHTML = matches.map(v=>`<div>${v}</div>`).join('');
+      suggestionsBox.style.display='block';
+      Array.from(suggestionsBox.children).forEach(div=>{
+        div.addEventListener('click', ()=>{
+          input.value = div.textContent;
+          renderBarcode(div.textContent);
+          suggestionsBox.style.display='none';
+        });
+      });
+    }
+
     let typingTimer;
     input.addEventListener('input', (e)=>{
       clearTimeout(typingTimer);
-      typingTimer = setTimeout(()=>{ renderBarcode(e.target.value); }, 120);
+      const val = e.target.value;
+      typingTimer = setTimeout(()=>{ 
+        renderBarcode(val); 
+        showSuggestions(val);
+      }, 120);
     });
 
     clearBtn.addEventListener('click', ()=>{
       input.value = '';
       renderBarcode('');
+      suggestionsBox.style.display='none';
       input.focus();
     });
 
     downloadBtn.addEventListener('click', ()=>{
       const val = input.value || '';
       if(!val) return alert('Nothing to download');
+      saveToHistory(val);
 
       const serializer = new XMLSerializer();
       const svgStr = serializer.serializeToString(svg);
@@ -113,11 +145,17 @@
       img.onload = function(){
         const canvas = document.createElement('canvas');
         canvas.width = img.width || 800;
-        canvas.height = img.height || 200;
+        canvas.height = img.height + 40; // extra space for text
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0,0,canvas.width,canvas.height);
         ctx.drawImage(img,0,0);
+        // draw the text below
+        ctx.fillStyle = '#000';
+        ctx.font = '20px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(val, canvas.width/2, img.height + 30);
+
         canvas.toBlob(function(blob){
           const a = document.createElement('a');
           a.download = 'barcode-'+Date.now()+'.png';
